@@ -202,7 +202,8 @@ function M.copy(L, index, dL)
 		C.lua_pushvalue(L, index)
 		C.lua_dump(L, writer, 0)
 		C.lua_pop(L, 1)
-		M.loadbuffer()
+		--M.loadbuffer()
+		--TODO: dump to a string buffer in the dest. state
 	elseif t == C.LUA_TLIGHTUSERDATA then
 		C.lua_pushlightuserdata(dL, C.lua_touserdata(L, index))
 	elseif t == C.LUA_TUSERDATA then
