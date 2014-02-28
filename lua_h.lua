@@ -310,8 +310,6 @@ void (luaL_openlibs) (lua_State *L);
 --[[
 lua_upvalueindex(i)	(LUA_GLOBALSINDEX-(i))
 
-lua_newtable(L) = lua_createtable(L, 0, 0),
-
 lua_register(L,n,f) = (lua_pushcfunction(L, (f)), lua_setglobal(L, (n))),
 
 lua_strlen(L,i) = lua_objlen(L, (i)),

@@ -8,7 +8,7 @@ local M = {C = C}
 
 function M.new_state()
 	local L = C.luaL_newstate()
-	assert(L ~= nil)
+	assert(L ~= nil, 'out of memory')
 	ffi.gc(L, M.close)
 	return L
 end
@@ -22,16 +22,21 @@ M.status = C.lua_status --0, error or LUA_YIELD
 
 --compiler
 
+local function check(L, ret)
+	if ret == 0 then return true end
+	return false, M.tostring(L, -1)
+end
+
 function M.loadbuffer(L, buf, sz, chunkname)
-	assert(C.luaL_loadbuffer(L, buf, sz, chunkname) == 0)
+	return check(L, C.luaL_loadbuffer(L, buf, sz, chunkname))
 end
 
 function M.loadstring(L, s, name)
-	M.loadbuffer(L, s, #s, name)
+	return M.loadbuffer(L, s, #s, name)
 end
 
 function M.loadfile(L, filename)
-	assert(C.luaL_loadfile(L, filename) == 0)
+	return check(L, C.luaL_loadfile(L, filename))
 end
 
 function M.load(L, reader, data, chunkname)
@@ -41,7 +46,7 @@ function M.load(L, reader, data, chunkname)
 	end
 	local ret = C.lua_load(L, reader_cb or reader, data, chunkname)
 	if reader_cb then reader_cb:free() end
-	if ret ~= 0 then error(string.format('lua_load error: %d', ret)) end
+	return check(L, ret)
 end
 
 local lib_openers = {
@@ -55,8 +60,8 @@ local lib_openers = {
 	package = C.luaopen_package,
 }
 
-function M.openlibs(L, ...) --open specific libs (or all libs if no args)
-	local n = select('#',...)
+function M.openlibs(L, ...) --open specific libs (or all libs if no args given)
+	local n = select('#', ...)
 	if n == 0 then
 		C.luaL_openlibs(L)
 		return
@@ -67,9 +72,24 @@ function M.openlibs(L, ...) --open specific libs (or all libs if no args)
 	end
 end
 
---stack (read)
+--stack (indices)
+
+function M.abs_index(L, i)
+	return (i > 0 or i <= C.LUA_REGISTRYINDEX) and i or C.lua_gettop(L) + i + 1
+end
 
 M.gettop = C.lua_gettop
+M.settop = C.lua_settop
+
+function M.pop(L, n)
+	C.lua_settop(L, -(n or 1) - 1)
+end
+
+function M.checkstack(L, n)
+	assert(C.lua_checkstack(L, n) ~= 0, 'stack overflow')
+end
+
+--stack (read)
 
 local lua_types = {
 	[C.LUA_TNIL] = 'nil',
@@ -89,7 +109,7 @@ function M.type(L, index)
 	return lua_types[t]
 end
 
-function M.lua_toboolean(L, index)
+function M.toboolean(L, index)
 	return C.lua_toboolean(L, index) == 1
 end
 
@@ -100,53 +120,56 @@ M.touserdata = C.lua_touserdata
 local sz
 function M.tolstring(L, index)
 	sz = sz or ffi.new('size_t[1]')
-	return C.tolstring(L, index, sz), sz[0]
+	return C.lua_tolstring(L, index, sz), sz[0]
 end
 
 function M.tostring(L, index)
-	return ffi.string(C.lua_tolstring(L, index))
+	return ffi.string(M.tolstring(L, index))
 end
 
 M.next = C.lua_next
 M.gettable = C.lua_gettable
 
-function M.get(L, index, dupes)
+function M.get(L, index)
 	index = index or -1
 	local t = M.type(L, index)
 	if t == 'nil' then
 		return nil
 	elseif t == 'boolean' then
 		return M.toboolean(L, index)
-	elseif t == 'lightuserdata' or t == 'userdata' then
-		return M.touserdata(L, index)
 	elseif t == 'number' then
 		return M.tonumber(L, index)
 	elseif t == 'string' then
 		return M.tostring(L, index)
+	elseif t == 'function' then
+		error'NYI'
 	elseif t == 'table' then
+		--TODO: detect duplicate refs
+		--TODO: stack-bound on table depth
+		local top = M.gettop(L)
+		M.checkstack(L, 2)
 		local dt = {}
+		index = M.abs_index(L, index)
 		C.lua_pushnil(L) -- first key
 		while C.lua_next(L, index) ~= 0 do
-			local k = M.get(L, -2, dupes)
-			local v = M.get(L, -1, dupes)
+			local k = M.get(L, -2)
+			local v = M.get(L, -1)
 			dt[k] = v
-			C.lua_pop(L, 1) -- remove 'value'; keep 'key' for next iteration
+			M.pop(L) -- remove 'value'; keep 'key' for next iteration
 		end
+		assert(M.gettop(L) == top)
 		return dt
-	elseif t == 'function' then
-		--TODO
+	elseif t == 'lightuserdata' then
+		return M.touserdata(L, index)
+	elseif t == 'userdata' then
+		error'NYI'
 	elseif t == 'thread' then
-		--TODO
+		error'NYI'
 	end
-end
-
-function M.pop(L, n)
-	C.lua_settop(L, -(n or 1) - 1)
 end
 
 --stack (write)
 
-M.settop = C.lua_settop
 M.pushnil = C.lua_pushnil
 M.pushboolean = C.lua_pushboolean
 M.pushinteger = C.lua_pushinteger
@@ -156,11 +179,19 @@ function M.pushcfunction(L, f)
 	C.lua_pushcclosure(L, f, 0)
 end
 M.pushlightuserdata = C.lua_pushlightuserdata
+M.pushlstring = C.lua_pushlstring
 function M.pushstring(L, s, sz)
 	C.lua_pushlstring(L, s, sz or #s)
 end
 M.pushthread = C.lua_pushthread
 M.pushvalue = C.lua_pushvalue --push stack element
+
+M.settable = C.lua_settable
+
+M.createtable = C.lua_createtable
+function M.newtable(L)
+	C.lua_createtable(L, 0, 0)
+end
 
 function M.push(L, v)
 	if type(v) == 'nil' then
@@ -171,71 +202,76 @@ function M.push(L, v)
 		M.pushnumber(L, v)
 	elseif type(v) == 'string' then
 		M.pushstring(L, v)
-	elseif type(v) == 'table' then
-		--TODO
 	elseif type(v) == 'function' then
 		M.loadstring(L, string.dump(v))
+	elseif type(v) == 'table' then
+		--TODO: detect duplicate refs
+		--TOOD: stack-bound on table depth
+		M.checkstack(L, 3)
+		M.newtable(L)
+		local top = M.gettop(L)
+		for k,v in pairs(v) do
+			M.push(L, k)
+			M.push(L, v)
+			M.settable(L, top)
+		end
+		assert(M.gettop(L) == top)
 	elseif type(v) == 'userdata' then
-		--M.pushlightuserdata(L, v)
-		--TODO
+		error'NYI'
 	elseif type(v) == 'thread' then
 		M.pushthread(L, v)
 	elseif type(v) == 'cdata' then
-		--TODO
+		error'NYI'
 	end
 end
 
---stack (copy)
+--interpreter
 
-function M.copy(L, index, dL)
-	index = index or -1
-	local t = C.lua_type(L, index)
-	if t == C.LUA_TNIL then
-		C.lua_pushnil(dL)
-	elseif t == C.LUA_TBOOLEAN then
-		C.lua_pushboolean(dL, C.lua_toboolean(L, index))
-	elseif t == C.LUA_TNUMBER then
-		C.lua_pushnumber(dL, C.lua_tonumber(L, index))
-	elseif t == C.LUA_TSTRING then
-		M.pushstring(dL, M.tolstring(L, index))
-	elseif t == C.LUA_TFUNCTION then
-		C.lua_pushvalue(L, index)
-		C.lua_dump(L, writer, 0)
-		C.lua_pop(L, 1)
-		--M.loadbuffer()
-		--TODO: dump to a string buffer in the dest. state
-	elseif t == C.LUA_TLIGHTUSERDATA then
-		C.lua_pushlightuserdata(dL, C.lua_touserdata(L, index))
-	elseif t == C.LUA_TUSERDATA then
-		--TODO:
-	elseif t == 'thread' then
-		--TODO
-	elseif t == C.LUA_TTABLE then
-		local dt = {}
-		C.lua_pushnil(L) -- first key
-		while C.lua_next(L, index) ~= 0 do
-			local k = M.get(L, -2)
-			local v = M.get(L, -1)
-			dt[k] = v
-			C.lua_pop(L, 1) -- remove 'value'; keep 'key' for next iteration
+function M.pcall(L, ...)
+	local top = M.gettop(L)
+
+	--push args
+	local nargs = select('#', ...)
+	for i = 1, nargs do
+		M.push(L, select(i, ...))
+	end
+
+	--pcall
+	local ok, err = check(L, C.lua_pcall(L, nargs, C.LUA_MULTRET, 0))
+
+	if not ok then
+		return false, err
+	end
+
+	--return results
+	local n = M.gettop(L) - top + 1
+	if n == 0 then
+		return true
+	elseif n == 1 then
+		local ret = M.get(L, -1)
+		M.pop(L)
+		return true, ret
+	else
+		--collect/pop/unpack return values
+		local t = {}
+		for i = 1, n do
+			t[i] = M.get(L, i - n - 1)
 		end
-		return dt
+		M.pop(L, n)
+		return true, unpack(t, 1, n)
 	end
 end
 
---calling functions
-
-function M.pcall(L, nargs, nresults, errfunc)
-	nresults = nresults or C.LUA_MULTRET
-	errfunc = errfunc or 0
-	return C.lua_pcall(L, nargs, nresults, errfunc)
+local function pass(ok, ...)
+	if not ok then error(..., 2) end
+	return ...
 end
 
---hi-level API
-
-function M.pcall(L, f, ...)
-	--
+function M.call(L, ...)
+	return pass(M.pcall(L, ...))
 end
+
+--object interface
 
 ffi.metatype('lua_State', {__index = {
 	--states
@@ -246,19 +282,23 @@ ffi.metatype('lua_State', {__index = {
 	loadstring = M.loadstring,
 	load = M.load,
 	openlibs = M.openlibs,
-	--stack (read)
+	--stack (indices)
+	abs_index = M.abs_index,
 	gettop = M.gettop,
+	settop = M.settop,
+	pop = M.pop,
+	checkstack = M.checkstack,
+	--stack (read)
 	type = M.type,
 	toboolean = M.toboolean,
 	tonumber = M.tonumber,
-	tothread = M.tothread,
-	touserdata = M.touserdata,
 	tolstring = M.tolstring,
 	tostring = M.tostring,
+	tothread = M.tothread,
+	touserdata = M.touserdata,
 	next = M.next,
 	gettable = M.gettable,
 	get = M.get,
-	pop = M.pop,
 	--stack (write)
 	settop = M.settop,
 	pushnil = M.pushnil,
@@ -271,20 +311,35 @@ ffi.metatype('lua_State', {__index = {
 	pushthread = M.pushthread,
 	pushvalue = M.pushvalue,
 	push = M.push,
-	--calling functions
+	--interpreter
 	pcall = M.pcall,
+	call = M.call,
 }})
 
+
 if not ... then
+	local pp = require'pp'.pp
+
 	local lua = M.new_state()
 	lua:openlibs('base')
 	lua:openlibs()
-	lua:loadstring('print("hello"); return 42, nil, "str"')
-	print(lua:pcall(0))
-	print(lua:gettop())
-	for i=1,3 do
-		print(lua:type(-i), lua:tostring(-i))
-	end
+
+	assert(lua:loadstring([[
+		local pp = require'pp'.pp
+		pp(...)
+		return 42.5, nil, false, "str", {k=5,t={},[{a=1}]={b=""}}
+	]], 'main'))
+	pp(lua:call(42.5, nil, false, "str", {k=5,t={},[{a=1}]={b=""}}))
+
+	local upvalue = 5
+	lua:push(function(a, b)
+		print('upvalue: ', upvalue)
+		print(a, b)
+		return b, a
+	end)
+	pp(lua:call('hi', 'there'))
+
+	assert(lua:gettop() == 0)
 	lua:close()
 end
 
