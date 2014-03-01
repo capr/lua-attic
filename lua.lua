@@ -1,12 +1,12 @@
 --Lua C API binding for Lua 5.1 (Cosmin Apreutesei, public domain)
-require'lua_h'
+require'luajit_h'
 local ffi = require'ffi'
 local C = ffi.C
 local M = {C = C}
 
 --states
 
-function M.new_state()
+function M.open()
 	local L = C.luaL_newstate()
 	assert(L ~= nil, 'out of memory')
 	ffi.gc(L, M.close)
@@ -58,6 +58,9 @@ local lib_openers = {
 	math = C.luaopen_math,
 	debug = C.luaopen_debug,
 	package = C.luaopen_package,
+	--luajit extensions
+	ffi = C.luaopen_ffi,
+	jit = C.luaopen_jit,
 }
 
 function M.openlibs(L, ...) --open specific libs (or all libs if no args given)
@@ -101,6 +104,7 @@ local lua_types = {
 	[C.LUA_TFUNCTION] = 'function',
 	[C.LUA_TUSERDATA] = 'userdata',
 	[C.LUA_TTHREAD] = 'thread',
+	[C.LUA_TCDATA] = 'cdata',
 }
 
 function M.type(L, index)
@@ -108,6 +112,15 @@ function M.type(L, index)
 	assert(t ~= C.LUA_TNONE)
 	return lua_types[t]
 end
+
+function M.isfunction(L, i) return C.lua_type(L, i) == C.LUA_TFUNCTION end
+function M.istable(L, i) return C.lua_type(L, i) == C.LUA_TTABLE end
+function M.islightuserdata(L, i) return C.lua_type(L, i) == C.LUA_TLIGHTUSERDATA end
+function M.isnil(L, i) return C.lua_type(L, i) == C.LUA_TNIL end
+function M.isboolean(L, i) return C.lua_type(L, i) == C.LUA_TBOOLEAN end
+function M.isthread(L, i) return C.lua_type(L, i) == C.LUA_TTHREAD end
+function M.isnone(L, i) return C.lua_type(L, i) == C.LUA_TNONE end
+function M.isnoneornil(L, i) return C.lua_type(L, i) <= 0 end
 
 function M.toboolean(L, index)
 	return C.lua_toboolean(L, index) == 1
@@ -164,6 +177,8 @@ function M.get(L, index)
 	elseif t == 'userdata' then
 		error'NYI'
 	elseif t == 'thread' then
+		error'NYI'
+	elseif t == 'cdata' then
 		error'NYI'
 	end
 end
@@ -271,6 +286,46 @@ function M.call(L, ...)
 	return pass(M.pcall(L, ...))
 end
 
+-- macros from lua.h
+
+function M.upvalueindex(i)
+	return C.LUA_GLOBALSINDEX - i
+end
+
+function M.register(L, n, f)
+	C.lua_pushcfunction(L, f)
+	C.lua_setglobal(L, n)
+end
+
+function M.strlen(L, i)
+	return C.lua_objlen(L, i)
+end
+
+M.setfield = C.lua_setfield
+M.getfield = C.lua_getfield
+
+function M.setglobal(L, s)
+	return C.lua_setfield(L, C.LUA_GLOBALSINDEX, s)
+end
+
+function M.getglobal(L, s)
+	return C.lua_getfield(L, C.LUA_GLOBALSINDEX, s)
+end
+
+function M.getregistry(L)
+	return C.lua_pushvalue(L, C.LUA_REGISTRYINDEX)
+end
+
+M.gc = C.lua_gc
+
+function M.getgccount(L)
+	return C.lua_gc(L, C.LUA_GCCOUNT, 0)
+end
+
+function M.getmetatable(L, i)
+	return C.lua_getfield(L, C.LUA_REGISTRYINDEX, i)
+end
+
 --object interface
 
 ffi.metatype('lua_State', {__index = {
@@ -320,7 +375,7 @@ ffi.metatype('lua_State', {__index = {
 if not ... then
 	local pp = require'pp'.pp
 
-	local lua = M.new_state()
+	local lua = M.open()
 	lua:openlibs('base')
 	lua:openlibs()
 
@@ -332,12 +387,30 @@ if not ... then
 	pp(lua:call(42.5, nil, false, "str", {k=5,t={},[{a=1}]={b=""}}))
 
 	local upvalue = 5
-	lua:push(function(a, b)
+	lua:push(function(...)
 		print('upvalue: ', upvalue)
-		print(a, b)
-		return b, a
+		print(...)
+		local function deep_table(depth)
+			local root = {}
+			local t = root
+			for i=1,depth do --test stack overflow
+				t[1] = {}
+				t = t[1]
+			end
+			return root
+		end
+		return deep_table(3000)
 	end)
-	pp(lua:call('hi', 'there'))
+	local function deep_table(depth)
+		local root = {}
+		local t = root
+		for i=1,depth do --test stack overflow
+			t[1] = {}
+			t = t[1]
+		end
+		return root
+	end
+	print(lua:call('hi', 'there', deep_table(3000)).foo)
 
 	assert(lua:gettop() == 0)
 	lua:close()

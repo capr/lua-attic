@@ -1,4 +1,4 @@
---cpp lua.h lauxlib.h lualib.h from Lua 5.1.5 (macros left out, see below)
+--lua.h lauxlib.h lualib.h from Lua 5.1.5 (defines made enums, macros removed)
 require'ffi'.cdef[[
 
 enum {
@@ -303,90 +303,5 @@ int (luaopen_package) (lua_State *L);
 
 /* open all previous libraries */
 void (luaL_openlibs) (lua_State *L);
-
-]]
-
-
---[[
-lua_upvalueindex(i)	(LUA_GLOBALSINDEX-(i))
-
-lua_register(L,n,f) = (lua_pushcfunction(L, (f)), lua_setglobal(L, (n))),
-
-lua_strlen(L,i) = lua_objlen(L, (i)),
-
-lua_isfunction(L,n) = (lua_type(L, (n)) == LUA_TFUNCTION),
-lua_istable(L,n) = (lua_type(L, (n)) == LUA_TTABLE),
-lua_islightuserdata(L,n) = (lua_type(L, (n)) == LUA_TLIGHTUSERDATA),
-lua_isnil(L,n) = (lua_type(L, (n)) == LUA_TNIL),
-lua_isboolean(L,n) = (lua_type(L, (n)) == LUA_TBOOLEAN),
-lua_isthread(L,n) = (lua_type(L, (n)) == LUA_TTHREAD),
-lua_isnone(L,n) = (lua_type(L, (n)) == LUA_TNONE),
-lua_isnoneornil(L, = n)	(lua_type(L, (n)) <= 0),
-
-lua_pushliteral(L, = s)	\,
-	lua_pushlstring(L, "" s, (sizeof(s)/sizeof(char))-1)
-
-lua_setglobal(L,s) = lua_setfield(L, LUA_GLOBALSINDEX, (s)),
-lua_getglobal(L,s) = lua_getfield(L, LUA_GLOBALSINDEX, (s)),
-
-lua_open() = luaL_newstate(),
-
-lua_getregistry(L) = lua_pushvalue(L, LUA_REGISTRYINDEX),
-
-lua_getgccount(L) = lua_gc(L, LUA_GCCOUNT, 0),
-
-lua_Chunkreader = lua_Reader,
-lua_Chunkwriter = lua_Writer,
-
-
-
-#define luaL_getn(L,i)          ((int)lua_objlen(L, i))
-#define luaL_setn(L,i,j)        ((void)0)  /* no op! */
-#define luaI_openlib	luaL_openlib
-
-
-#define luaL_argcheck(L, cond,numarg,extramsg)	\
-		((void)((cond) || luaL_argerror(L, (numarg), (extramsg))))
-#define luaL_checkstring(L,n)	(luaL_checklstring(L, (n), NULL))
-#define luaL_optstring(L,n,d)	(luaL_optlstring(L, (n), (d), NULL))
-#define luaL_checkint(L,n)	((int)luaL_checkinteger(L, (n)))
-#define luaL_optint(L,n,d)	((int)luaL_optinteger(L, (n), (d)))
-#define luaL_checklong(L,n)	((long)luaL_checkinteger(L, (n)))
-#define luaL_optlong(L,n,d)	((long)luaL_optinteger(L, (n), (d)))
-
-#define luaL_typename(L,i)	lua_typename(L, lua_type(L,(i)))
-
-#define luaL_dofile(L, fn) \
-	(luaL_loadfile(L, fn) || lua_pcall(L, 0, LUA_MULTRET, 0))
-
-#define luaL_dostring(L, s) \
-	(luaL_loadstring(L, s) || lua_pcall(L, 0, LUA_MULTRET, 0))
-
-#define luaL_getmetatable(L,n)	(lua_getfield(L, LUA_REGISTRYINDEX, (n)))
-
-#define luaL_opt(L,f,n,d)	(lua_isnoneornil(L,(n)) ? (d) : f(L,(n)))
-
-
-#define luaL_addchar(B,c) \
-  ((void)((B)->p < ((B)->buffer+LUAL_BUFFERSIZE) || luaL_prepbuffer(B)), \
-   (*(B)->p++ = (char)(c)))
-
-/* compatibility only */
-#define luaL_putchar(B,c)	luaL_addchar(B,c)
-
-#define luaL_addsize(B,n)	((B)->p += (n))
-
-
-/* compatibility with ref system */
-
-#define lua_ref(L,lock) ((lock) ? luaL_ref(L, LUA_REGISTRYINDEX) : \
-      (lua_pushstring(L, "unlocked references are obsolete"), lua_error(L), 0))
-
-#define lua_unref(L,ref)        luaL_unref(L, LUA_REGISTRYINDEX, (ref))
-
-#define lua_getref(L,ref)       lua_rawgeti(L, LUA_REGISTRYINDEX, (ref))
-
-
-#define luaL_reg	luaL_Reg
 
 ]]
