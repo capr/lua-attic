@@ -113,6 +113,9 @@ function M.type(L, index)
 	return lua_types[t]
 end
 
+M.objlen = C.lua_objlen
+M.strlen = C.lua_objlen
+
 function M.isfunction(L, i) return C.lua_type(L, i) == C.LUA_TFUNCTION end
 function M.istable(L, i) return C.lua_type(L, i) == C.LUA_TTABLE end
 function M.islightuserdata(L, i) return C.lua_type(L, i) == C.LUA_TLIGHTUSERDATA end
@@ -142,6 +145,10 @@ end
 
 M.next = C.lua_next
 M.gettable = C.lua_gettable
+M.getfield = C.lua_getfield
+M.rawget = C.lua_rawget
+M.rawgeti = C.lua_rawgeti
+M.getmetatable = C.lua_getmetatable
 
 function M.get(L, index)
 	index = index or -1
@@ -202,7 +209,10 @@ M.pushthread = C.lua_pushthread
 M.pushvalue = C.lua_pushvalue --push stack element
 
 M.settable = C.lua_settable
-
+M.setfield = C.lua_setfield
+M.rawset = C.lua_rawset
+M.rawseti = C.lua_rawseti
+M.setmetatable = C.lua_setmetatable
 M.createtable = C.lua_createtable
 function M.newtable(L)
 	C.lua_createtable(L, 0, 0)
@@ -286,6 +296,14 @@ function M.call(L, ...)
 	return pass(M.pcall(L, ...))
 end
 
+--gc
+
+M.gc = C.lua_gc
+
+function M.getgccount(L)
+	return C.lua_gc(L, C.LUA_GCCOUNT, 0)
+end
+
 -- macros from lua.h
 
 function M.upvalueindex(i)
@@ -297,33 +315,16 @@ function M.register(L, n, f)
 	C.lua_setglobal(L, n)
 end
 
-function M.strlen(L, i)
-	return C.lua_objlen(L, i)
+function M.getglobal(L, s)
+	return C.lua_getfield(L, C.LUA_GLOBALSINDEX, s)
 end
-
-M.setfield = C.lua_setfield
-M.getfield = C.lua_getfield
 
 function M.setglobal(L, s)
 	return C.lua_setfield(L, C.LUA_GLOBALSINDEX, s)
 end
 
-function M.getglobal(L, s)
-	return C.lua_getfield(L, C.LUA_GLOBALSINDEX, s)
-end
-
 function M.getregistry(L)
 	return C.lua_pushvalue(L, C.LUA_REGISTRYINDEX)
-end
-
-M.gc = C.lua_gc
-
-function M.getgccount(L)
-	return C.lua_gc(L, C.LUA_GCCOUNT, 0)
-end
-
-function M.getmetatable(L, i)
-	return C.lua_getfield(L, C.LUA_REGISTRYINDEX, i)
 end
 
 --object interface
@@ -337,24 +338,32 @@ ffi.metatype('lua_State', {__index = {
 	loadstring = M.loadstring,
 	load = M.load,
 	openlibs = M.openlibs,
-	--stack (indices)
+	--stack / indices
 	abs_index = M.abs_index,
 	gettop = M.gettop,
 	settop = M.settop,
 	pop = M.pop,
 	checkstack = M.checkstack,
-	--stack (read)
+	--stack / read
 	type = M.type,
+	objlen = M.objlen,
+	strlen = M.strlen,
 	toboolean = M.toboolean,
 	tonumber = M.tonumber,
 	tolstring = M.tolstring,
 	tostring = M.tostring,
 	tothread = M.tothread,
 	touserdata = M.touserdata,
+	--stack / read / tables
 	next = M.next,
 	gettable = M.gettable,
+	getfield = M.getfield,
+	rawget = M.rawget,
+	rawgeti = M.rawgeti,
+	getmetatable = M.getmetatable,
+	--stack / get / synthesis
 	get = M.get,
-	--stack (write)
+	--stack / write
 	settop = M.settop,
 	pushnil = M.pushnil,
 	pushboolean = M.pushboolean,
@@ -365,10 +374,26 @@ ffi.metatype('lua_State', {__index = {
 	pushstring = M.pushstring,
 	pushthread = M.pushthread,
 	pushvalue = M.pushvalue,
+	--stack / write / tables
+	settable = M.settable,
+	setfield = M.setfield,
+	rawset = M.rawset,
+	rawseti = M.rawseti,
+	setmetatable = M.setmetatable,
+	--stack / write / synthesis
 	push = M.push,
 	--interpreter
 	pcall = M.pcall,
 	call = M.call,
+	--gc
+	gc = M.gc,
+	getgccount = M.getgccount,
+	--macros
+	upvalueindex = M.upvalueindex,
+	register = M.register,
+	setglobal = M.setglobal,
+	getglobal = M.getglobal,
+	getregistry = M.getregistry,
 }})
 
 

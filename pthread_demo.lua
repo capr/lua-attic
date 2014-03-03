@@ -1,57 +1,101 @@
 local pthread = require'pthread'
 local lua = require'lua'
 local ffi = require'ffi'
+local glue = require'glue'
 
-local queue = {}
-
-local function push(chan, msg)
-	queue[chan] = queue[chan] or {}
-	table.insert(queue[chan], msg)
+--create a new Lua state and a new thread, and run a worker function in that state and thread.
+local function create_thread(worker, args)
+	local state = lua.open()
+	state:openlibs()
+	state:push(function(worker, args)
+		local ffi = require'ffi'
+		local function wrapper()
+			worker(args)
+		end
+		local wrapper_cb = ffi.cast('void *(*)(void *)', wrapper)
+		return tonumber(ffi.cast('intptr_t', wrapper_cb))
+	end)
+	local wrapper_cb_ptr = ffi.cast('void *', state:call(worker, args))
+	local thread = pthread.new(wrapper_cb_ptr)
+	local function join()
+		thread:join()
+		state:close()
+	end
+	return join
 end
 
-local function pop(chan)
-	queue[chan] = queue[chan] or {}
-	return table.remove(queue[chan])
-end
-
-local state = lua.open()
-state:openlibs()
-state:push(function()
+--worker function that takes a mutex, a Lua state and a thread object.
+--sets thread.shared so that the thread can access the shared state and calls thread:run().
+local function worker(args)
 	local ffi = require'ffi'
 	local pthread = require'pthread'
-	local function send(msg)
-		--
+	local lua = require'lua'
+	local state = ffi.cast('lua_State*', args.state)
+	local mutex = ffi.cast('pthread_mutex_t*', args.mutex)
+	local function pass(...)
+		mutex:unlock()
+		return ...
 	end
-	local function receive()
-		return 'received'
+	local function call_shared(api, ...)
+		mutex:lock()
+		state:getglobal(api)
+		return pass(state:call(...))
 	end
-	local hello_cb
-	local function hello()
-		print'Hello from another Lua state!'
+	local shared_vt = setmetatable({}, {__index = function(t, k)
+		return
+	end})
+	args.thread.shared = call_shared
+	args.thread:run()
+end
 
-		local m = pthread.mutex.new()
-		m:lock()
-		assert(m:trylock() == false)
-		m:unlock()
-		m:free()
+local function pickle(cdata)
+	return tonumber(ffi.cast('intptr_t', ffi.cast('void*', cdata)))
+end
 
-		local c = pthread.cond.new()
-		c:free()
+--creates a shared state and a thread generator which can make threads that can access the shared state.
+local function thread_gen(shared_api)
+	local state = lua.open()
+	state:openlibs()
+	state:push(function(api)
+		for k,v in pairs(api) do
+			_G[k] = v
+		end
+	end)
+	state:call(shared_api)
+	local mutex = pthread.mutex.new()
 
-		send('hello')
-		print(receive())
-		local thread = pthread.self()
-		assert(thread == thread)
-		hello_cb:free()
-		pthread.exit(ffi.cast('void*', 1234))
+	local function new_thread(thread)
+		return create_thread(worker, {
+			state = pickle(state),
+			mutex = pickle(mutex),
+			thread = thread,
+		})
 	end
-	hello_cb = ffi.cast('void *(*)(void *)', hello)
-	return tonumber(ffi.cast('intptr_t', hello_cb))
-end)
-local func_ptr = ffi.cast('void*', state:call())
 
-local thread = pthread.new(func_ptr)
-print(tonumber(ffi.cast('intptr_t', thread:join())))
+	return new_thread
+end
 
-state:close()
+----
+
+local shared = {}
+
+function shared.exp(x, e)
+	return x^e
+end
+
+local thread = {}
+
+function thread:new(t)
+	return glue.update(t, self)
+end
+
+function thread:run()
+	print(self.shared('exp', self.x, self.e))
+end
+
+local new_thread = thread_gen(shared)
+local join1 = new_thread(thread:new{x = 5, e = 2})
+local join2 = new_thread(thread:new{x = 12, e = 2})
+join1()
+join2()
 
