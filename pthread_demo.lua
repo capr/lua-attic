@@ -48,7 +48,7 @@ local function worker(args)
 	args.thread:run()
 end
 
-local function pickle(cdata)
+local function addr(cdata)
 	return tonumber(ffi.cast('intptr_t', ffi.cast('void*', cdata)))
 end
 
@@ -66,8 +66,8 @@ local function thread_gen(shared_api)
 
 	local function new_thread(thread)
 		return create_thread(worker, {
-			state = pickle(state),
-			mutex = pickle(mutex),
+			state = addr(state),
+			mutex = addr(mutex),
 			thread = thread,
 		})
 	end

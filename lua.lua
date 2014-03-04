@@ -20,6 +20,8 @@ end
 
 M.status = C.lua_status --0, error or LUA_YIELD
 
+M.newthread = C.lua_newthread
+
 --compiler
 
 local function check(L, ret)
@@ -73,6 +75,7 @@ function M.openlibs(L, ...) --open specific libs (or all libs if no args given)
 		C.lua_pushcclosure(L, assert(lib_openers[select(i,...)]), 0)
 		C.lua_call(L, 0, 0)
 	end
+	return L
 end
 
 --stack (indices)
@@ -162,7 +165,16 @@ function M.get(L, index)
 	elseif t == 'string' then
 		return M.tostring(L, index)
 	elseif t == 'function' then
-		error'NYI'
+		--[[
+		index = M.abs_index(L, index)
+		M.checkstack(L, 4)
+		M.getglobal(L, 'string')
+		M.getfield(L, -1, 'dump')
+		M.pushvalue(L, index)
+		local ok, s = assert(M.pcall(L))
+		return s
+		]]
+		error'NYI' --todo: get it with lua_dump, or call string.dump and get the result string
 	elseif t == 'table' then
 		--TODO: detect duplicate refs
 		--TODO: stack-bound on table depth
@@ -252,24 +264,18 @@ end
 
 --interpreter
 
-function M.pcall(L, ...)
-	local top = M.gettop(L)
-
-	--push args
-	local nargs = select('#', ...)
-	for i = 1, nargs do
+--push multiple values
+function M.pushvalues(L, ...)
+	local argc = select('#', ...)
+	for i = 1, argc do
 		M.push(L, select(i, ...))
 	end
+	return argc
+end
 
-	--pcall
-	local ok, err = check(L, C.lua_pcall(L, nargs, C.LUA_MULTRET, 0))
-
-	if not ok then
-		return false, err
-	end
-
-	--return results
-	local n = M.gettop(L) - top + 1
+--pop multiple values and return them
+function M.popvalues(L, top_before_call)
+	local n = M.gettop(L) - top_before_call + 1
 	if n == 0 then
 		return true
 	elseif n == 1 then
@@ -287,6 +293,17 @@ function M.pcall(L, ...)
 	end
 end
 
+--call the function at the top of the stack, wrapping the passing of args and the returning of return values.
+function M.pcall(L, ...)
+	local top = M.gettop(L)
+	local argc = M.pushvalues(L, ...)
+	local ok, err = check(L, C.lua_pcall(L, argc, C.LUA_MULTRET, 0))
+	if not ok then
+		return false, err
+	end
+	return M.popvalues(L, top)
+end
+
 local function pass(ok, ...)
 	if not ok then error(..., 2) end
 	return ...
@@ -294,6 +311,15 @@ end
 
 function M.call(L, ...)
 	return pass(M.pcall(L, ...))
+end
+
+--resume the coroutine at the top of the stack, wrapping the passing of args and the returning of yielded values.
+function M.resume(L, ...)
+	local top = M.gettop(L)
+	local argc = M.pushvalues(L, ...)
+	local ret = C.lua_resume(L, argc)
+	local ok = ret == 0 or ret == C.LUA_YIELD
+	return ok, M.popvalues(L, top)
 end
 
 --gc
@@ -333,6 +359,9 @@ ffi.metatype('lua_State', {__index = {
 	--states
 	close = M.close,
 	status = M.status,
+	newthread = M.newthread,
+	resume = M.resume,
+	yield = M.yield,
 	--compiler
 	loadbuffer = M.loadbuffer,
 	loadstring = M.loadstring,
@@ -383,6 +412,8 @@ ffi.metatype('lua_State', {__index = {
 	--stack / write / synthesis
 	push = M.push,
 	--interpreter
+	pushvalues = M.pushvalues,
+	popvalues = M.popvalues,
 	pcall = M.pcall,
 	call = M.call,
 	--gc
