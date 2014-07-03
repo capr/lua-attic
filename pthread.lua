@@ -1,5 +1,5 @@
 --pthread binding (Cosmin Apreutesei, public domain)
-require'pthread_h'
+require'_attic.pthread_h'
 local ffi = require'ffi'
 local C = ffi.load'pthread'
 
