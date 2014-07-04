@@ -6,7 +6,7 @@ local x64 = ffi.arch == 'x64'
 
 local _ = string.format
 local out = function(...) io.stdout:write(...) end
-local s = ('-'):rep(80)
+local s = ('-'):rep(x64 and 140 or 96)
 local hr = function() out(s, '\n') end
 
 local function asmfunc(asm, env, ctype, ...)
@@ -19,7 +19,7 @@ local function asmfunc(asm, env, ctype, ...)
 		%s
 	end, actions
 	]], asm)
-	print(dynasm.translate_tostring(dynasm.string_infile(asm), {lang = "lua"}))
+	--print(dynasm.translate_tostring(dynasm.string_infile(asm), {lang = "lua"}))
 	local chunk = assert(dynasm.loadstring(asm))
 	if env then
 		setmetatable(env, {__index = _G})
@@ -29,7 +29,7 @@ local function asmfunc(asm, env, ctype, ...)
 	local st = dasm.new(actions)
 	gencode(st)
 	local buf, sz = st:build()
-	dasm.dump(buf, sz); --out'\n'
+	--dasm.dump(buf, sz); --out'\n'
 	out'\n'
 	local fptr = ffi.cast(ctype, buf)
 	return function(...)
@@ -38,139 +38,169 @@ local function asmfunc(asm, env, ctype, ...)
 	end
 end
 
+local cvt80to64 = asmfunc([[
+	| mov eax, dword [esp+4]
+	| fld tword [eax]
+	| ret
+]], {}, 'double(*)(uint8_t*)')
+
+
+--https://github.com/Itseez/opencv/blob/master/modules/core/include/opencv2/core/cvdef.h
+local function isnan(q)
+	return bit.band(q.hi.uval, 0x7fffffff) + (q.lo.uval ~= 0 and 1 or 0) > 0x7ff00000
+end
+
+local function isnanf(d)
+	return bit.band(d.uval, 0x7fffffff) + (d.lo.uval ~= 0 and 1 or 0) > 0x7ff00000
+end
+
 ffi.cdef[[
 typedef union __attribute__((__packed__)) D_BYTE {
-	uint8_t   uint8;
-	int8_t    int8;
+	uint8_t  bval;
+	uint8_t  uval;
+	int8_t   sval;
 } D_BYTE;
 
 typedef union __attribute__((__packed__)) D_WORD {
-	uint8_t  uint8[2];
-	int8_t   int8[2];
-	D_BYTE   byte[2];
-	uint16_t uint16;
-	int16_t  int16;
+	D_BYTE   bytes[2];
 	struct { D_BYTE lo, hi; };
+	uint8_t  bval[2];
+	uint16_t uval;
+	int16_t  sval;
 } D_WORD;
 
 typedef union __attribute__((__packed__)) D_DWORD {
-	uint8_t  uint8[4];
-	int8_t   int8[4];
-	D_BYTE   byte[4];
-	uint16_t uint16[2];
-	int16_t  int16[2];
-	D_WORD   word[2];
-	uint32_t uint32;
-	int32_t  int32;
-	float    floatval;
+	D_BYTE   bytes[4];
+	D_WORD   words[2];
 	struct { D_WORD lo, hi; };
+	uint8_t  bval[4];
+	uint32_t uval;
+	int32_t  sval;
+	float    fval;
 } D_DWORD;
 
 typedef union __attribute__((__packed__)) D_QWORD {
-	uint8_t  uint8[8];
-	int8_t   int8[8];
-	D_BYTE   byte[8];
-	uint16_t uint16[4];
-	int16_t  int16[4];
-	D_WORD   word[4];
-	uint32_t uint32[2];
-	int32_t  int32[2];
-	D_DWORD  dword[2];
-	uint64_t uint64;
-	int64_t  int64;
-	double   doubleval;
+	D_BYTE   bytes[8];
+	D_WORD   words[4];
+	D_DWORD  dwords[2];
 	struct { D_DWORD lo, hi; };
+	uint8_t  bval[8];
+	uint64_t uval;
+	int64_t  sval;
+	double   fval;
 } D_QWORD;
 
 typedef union __attribute__((__packed__)) D_DQWORD {
-	uint8_t  uint8[16];
-	int8_t   int8[16];
-	D_BYTE   byte[16];
-	uint16_t uint16[8];
-	int16_t  int16[8];
-	D_WORD   word[8];
-	uint32_t uint32[4];
-	int32_t  int32[4];
-	D_DWORD  dword[4];
-	uint64_t uint64[2];
-	int64_t  int64[2];
-	D_QWORD  qword[2];
+	D_BYTE   bytes[16];
+	D_WORD   words[8];
+	D_DWORD  dwords[4];
+	D_QWORD  qwords[2];
 	struct { D_QWORD lo, hi; };
+	uint8_t  bval[16];
 } D_DQWORD;
 
 typedef union __attribute__((__packed__)) D_TWORD {
-	uint8_t  uint8[10];
-	int8_t   int8[10];
-	D_BYTE    byte[10];
-	uint16_t uint16[5];
-	int16_t  int16[5];
-	D_WORD    word[5];
-	uint32_t lo;
-	uint32_t hi;
-	uint16_t ex;
+	D_BYTE   bytes[10];
+	struct __attribute__((__packed__)) {
+		int64_t mantissa;
+		struct {
+			uint16_t exponent: 15;
+			uint16_t sign: 1;
+		};
+	};
+	uint8_t  bval[10];
 } D_TWORD;
 
-typedef struct D_EFLAGS {
-	uint32_t CF: 1;  // 0
-	uint32_t _1: 1;
-	uint32_t PF: 1;  // 2
-	uint32_t _2: 1;
-	uint32_t AF: 1;  // 4
-	uint32_t _3: 1;
-	uint32_t ZF: 1;  // 6
-	uint32_t SF: 1;  // 7
-	uint32_t TF: 1;  // 8
-	uint32_t IF: 1;  // 9
-	uint32_t DF: 1;  // 10
-	uint32_t OF: 1;  // 11
-	uint32_t IOPL: 2; // 12-13
-	uint32_t NT: 1;  // 14
-	uint32_t _4: 1;
-	uint32_t RF: 1;  // 16
-	uint32_t VM: 1;  // 17
-	uint32_t AC: 1;  // 18
-	uint32_t VIF: 1; // 19
-	uint32_t VIP: 1; // 20
-	uint32_t ID: 1;  // 21
+typedef union __attribute__((__packed__)) D_EFLAGS {
+	uint64_t val;
+	struct {
+		uint32_t CF: 1;  // 0
+		uint32_t _1: 1;
+		uint32_t PF: 1;  // 2
+		uint32_t _2: 1;
+		uint32_t AF: 1;  // 4
+		uint32_t _3: 1;
+		uint32_t ZF: 1;  // 6
+		uint32_t SF: 1;  // 7
+		uint32_t TF: 1;  // 8
+		uint32_t IF: 1;  // 9
+		uint32_t DF: 1;  // 10
+		uint32_t OF: 1;  // 11
+		uint32_t IOPL: 2; // 12-13
+		uint32_t NT: 1;  // 14
+		uint32_t _4: 1;
+		uint32_t RF: 1;  // 16
+		uint32_t VM: 1;  // 17
+		uint32_t AC: 1;  // 18
+		uint32_t VIF: 1; // 19
+		uint32_t VIP: 1; // 20
+		uint32_t ID: 1;  // 21
+	};
 } D_EFLAGS;
 
-typedef struct D_FCW {
-	uint16_t IM: 1;  // 0
-	uint16_t DM: 1;  // 1
-	uint16_t ZM: 1;  // 2
-	uint16_t OM: 1;  // 3
-	uint16_t UM: 1;  // 4
-	uint16_t PM: 1;  // 5
-	uint16_t _1: 1;
-	uint16_t IEM:1;  // 7
-	uint16_t PC: 2;  // 8-9
-	uint16_t RC: 2;  // 10-11
-	uint16_t IC: 1;  // 12
+typedef union __attribute__((__packed__)) D_FCW {
+	uint16_t val;
+	struct {
+		uint16_t IM: 1;  // 0
+		uint16_t DM: 1;  // 1
+		uint16_t ZM: 1;  // 2
+		uint16_t OM: 1;  // 3
+		uint16_t UM: 1;  // 4
+		uint16_t PM: 1;  // 5
+		uint16_t _1: 1;
+		uint16_t IEM:1;  // 7
+		uint16_t PC: 2;  // 8-9
+		uint16_t RC: 2;  // 10-11
+		uint16_t IC: 1;  // 12
+	};
 } D_FCW;
 
-typedef struct D_FSW {
-	uint16_t I:  1; // 0
-	uint16_t D:  1; // 1
-	uint16_t Z:  1; // 2
-	uint16_t O:  1; // 3
-	uint16_t U:  1; // 4
-	uint16_t P:  1; // 5
-	uint16_t SF: 1; // 6
-	uint16_t IR: 1; // 7
-	uint16_t C0: 1; // 8
-	uint16_t C1: 1; // 9
-	uint16_t C2: 1; // 10
-	uint16_t TOP:3; // 11-13
-	uint16_t C3: 1; // 14
-	uint16_t B:  1; // 15
+typedef union __attribute__((__packed__)) D_FSW {
+	uint16_t val;
+	struct {
+		uint16_t I:  1; // 0
+		uint16_t D:  1; // 1
+		uint16_t Z:  1; // 2
+		uint16_t O:  1; // 3
+		uint16_t U:  1; // 4
+		uint16_t P:  1; // 5
+		uint16_t SF: 1; // 6
+		uint16_t IR: 1; // 7
+		uint16_t C0: 1; // 8
+		uint16_t C1: 1; // 9
+		uint16_t C2: 1; // 10
+		uint16_t TOP:3; // 11-13
+		uint16_t C3: 1; // 14
+		uint16_t B:  1; // 15
+	};
 } D_FSW;
 
-typedef struct D_FTW {
-	uint16_t _1; // TODO
+typedef union __attribute__((__packed__)) D_FTW { // TOS-independent order
+	uint16_t val;
+	struct {
+		uint16_t FP7: 2;
+		uint16_t FP6: 2;
+		uint16_t FP5: 2;
+		uint16_t FP4: 2;
+		uint16_t FP3: 2;
+		uint16_t FP2: 2;
+		uint16_t FP1: 2;
+		uint16_t FP0: 2;
+	};
 } D_FTW;
 
-typedef struct D_FTWX {
-	uint8_t _1; // TODO
+typedef union __attribute__((__packed__)) D_FTWX {
+	uint8_t val;
+	struct {
+		uint8_t FP7: 1;
+		uint8_t FP6: 1;
+		uint8_t FP5: 1;
+		uint8_t FP4: 1;
+		uint8_t FP3: 1;
+		uint8_t FP2: 1;
+		uint8_t FP1: 1;
+		uint8_t FP0: 1;
+	};
 } D_FTWX;
 
 typedef struct __attribute__((__packed__)) D_FSTENV {
@@ -211,20 +241,20 @@ typedef struct __attribute__((__packed__)) D_FPRX {
 	uint8_t _1[6]; // 6 bytes padding
 } D_FPRX;
 
-typedef struct D_FXSAVE {
+typedef struct __attribute__((aligned (16))) D_FXSAVE {
 	D_FCW      FCW;
 	D_FSW      FSW;
 	D_FTWX     FTWX;
-	uint8_t    _1;
+	uint8_t    _fxsave_1;
 	uint16_t   FOP;
 	union {
 		struct {
 			uint32_t  FPU_IP;
 			uint16_t  FPU_CS;
-			uint16_t  __1;
+			uint16_t  _1;
 			uint32_t  FPU_DP;
 			uint16_t  FPU_DS;
-			uint16_t  __2;
+			uint16_t  _2;
 		} x86;
 		struct {
 			uint64_t  FPU_IP;
@@ -233,25 +263,21 @@ typedef struct D_FXSAVE {
 	};
 	D_MXCSR    MXCSR;
 	uint32_t   MXCSR_MASK;
-	D_FPRX     FPR[8];
+	D_FPRX     FPR[8]; // in TOS-independent order
 	D_DQWORD   XMM[16];
-	uint8_t    _2[96];
+	uint8_t    _fxsave_2[96];
 } D_FXSAVE;
 
-typedef struct __attribute__((__packed__)) MemDump {
-	D_FXSAVE;         // must be first in struct! fxsave needs this aligned to 16 bytes.
-	//D_FSTENV FSTENV;  // alternative
-
-	// CPU state
-	D_DWORD EAX, EBX, ECX, EDX, ESI, EDI, EBP, ESP;
+typedef struct MemDump {
+	union {
+		D_QWORD GPR[16];
+		struct { D_QWORD RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15; };
+		struct { D_DWORD _1, EAX, _2, ECX, _3, EDX, _4, EBX, _5, ESP, _6, EBP, _7, ESI, _8, EDI; };
+	};
 	D_EFLAGS EFLAGS;
-
-	// FPU state
-	//D_QWORD ST[8];
-
-	// STACK state
+	D_FXSAVE;
 	uint32_t stack_size;
-	D_DWORD stack[4096];  // top-to-bottom (ESP -> EBP)
+	D_QWORD stack[4096];  // top-to-bottom (ESP -> EBP)
 } MemDump;
 ]]
 
@@ -265,7 +291,7 @@ assert(ffi.sizeof('D_FPRX') == 16)
 assert(ffi.sizeof('D_FXSAVE') == 512)
 
 local D_EFLAGS = {
-	title = 'EFLAGS', stitle = 'EF', mdfield = 'EFLAGS',
+	title = 'FLAGS', stitle = 'FLAGS', mdfield = 'EFLAGS',
 	fields = {'CF', 'PF', 'AF', 'ZF', 'SF', 'TF', 'IF', 'DF', 'OF',
 				'IOPL', 'NT', 'RF', 'VM', 'AC', 'VIF', 'VIP', 'ID'},
 	descr = {
@@ -332,180 +358,201 @@ local D_MXCSR = {
 	fields = {'IE', 'DE', 'ZE', 'OE', 'UE', 'PE', 'DAZ', 'IM',
 				'DM', 'ZM', 'OM', 'UM', 'PM', 'RM', 'FZ'},
 	descr = {
-		FZ	= 'Flush To Zero',
-		RM = 'Round Mode',
-		PM = 'Precision Mask',
-		UM = 'Underflow Mask',
-		OM = 'Overflow Mask',
-		ZM = 'Divide By Zero Mask',
-		DM = 'Denormal Mask',
-		IM = 'Invalid Operation Mask',
+		FZ	 = 'Flush To Zero',
+		RM  = 'Round Mode',
+		PM  = 'Precision Mask',
+		UM  = 'Underflow Mask',
+		OM  = 'Overflow Mask',
+		ZM  = 'Divide By Zero Mask',
+		DM  = 'Denormal Mask',
+		IM  = 'Invalid Operation Mask',
 		DAZ = 'Denormals Are Zero',
-		PE = 'Precision Flag',
-		UE = 'Underflow Flag',
-		OE = 'Overflow Flag',
-		ZE = 'Divide By Zero Flag',
-		DE = 'Denormal Flag',
-		IE = 'Invalid Operation Flag',
+		PE  = 'Precision Flag',
+		UE  = 'Underflow Flag',
+		OE  = 'Overflow Flag',
+		ZE  = 'Divide By Zero Flag',
+		DE  = 'Denormal Flag',
+		IE  = 'Invalid Operation Flag',
 	},
 }
 
-local asm = [[
-	|.type MD, MemDump, eax
+local template_asm = [[
+	local X64 = ffi.arch == 'x64'
 	|
-	| pushfd
-	| push eax
+	| --push EFLAGS and EAX, which will hold the addr. of md
+	|.if X86
+	|   pushfd
+	|   push eax
+	|  .define BASE, eax
+	|.else
+	|   pushfq
+	|   push rax
+	|  .define BASE, rax
+	|.endif
 	|
-	| mov eax, ffi.cast('void*', md)
+	|.type MD, MemDump, BASE
+	| mov BASE, ffi.cast('void*', md)
    |
-	| mov MD.EBX, ebx
-	| mov MD.ECX, ecx
-	| mov MD.EDX, edx
-	| mov MD.ESI, esi
-	| mov MD.EDI, edi
-	| mov MD.EBP, ebp
+	| --save FPU/MMX and SSE state in one shot
+	| fxsave MD.FCW
 	|
-	| mov ecx, eax
-	| pop eax
-	| mov MD:ecx.EAX, eax
-	| mov eax, ecx
+	| --save GPRs
+   |.if X86
+	|   mov MD.ECX, ecx
+	|   mov MD.EDX, edx
+	|   mov MD.ESI, esi
+	|   mov MD.EDI, edi
+	|   mov MD.EBP, ebp
+	|   mov ecx, eax
+	|   pop eax
+	|   mov MD:ecx.EAX, eax
+	|   mov eax, ecx
+	|   pop ecx
+	|   mov MD.EFLAGS, ecx
+	|   mov MD.ESP, esp --esp has initial value now
+	|.else
+	|   mov MD.RBX, rbx
+	|   mov MD.RCX, rcx
+	|   mov MD.RDX, rdx
+	|   mov MD.RSI, rsi
+	|   mov MD.RDI, rdi
+	|   mov MD.RBP, rbp
+	|   mov rcx, rax
+	|   pop rax
+	|   mov MD:rcx.RAX, rax
+	|   mov rax, rcx
+	|   pop rcx
+	|   mov MD.EFLAGS, rcx
+	|   mov MD.RSP, rsp --rsp has initial value now
+	|   mov MD.R8,  r8
+	|   mov MD.R9,  r9
+	|   mov MD.R10, r10
+	|   mov MD.R11, r11
+	|   mov MD.R12, r12
+	|   mov MD.R13, r13
+	|   mov MD.R14, r14
+	|   mov MD.R15, r15
+   |.endif
 	|
-	| pop ecx
-	| mov MD.EFLAGS, ecx
+	| --save stack between EBP and ESP
 	|
-	| mov MD.ESP, esp
+	|.if X86
+	|  .define TMP, ebx
+	|  .define SRC, edx
+	|  .define DST, ecx
+	|  .define ADD, 4
+	|  .define SHIFT, 2
+	|  .define SP, esp
+	|  .define BP, ebp
+	|.else
+	|  .define TMP, rbx
+	|  .define SRC, rdx
+	|  .define DST, rcx
+	|  .define ADD, 8
+	|  .define SHIFT, 3
+	|  .define SP, rsp
+	|  .define BP, rbp
+	|.endif
 	|
-	| fldpi
-	| fldpi
-	| fldpi
-
-	| push 0x12345678
-   | push 0x9abcdef0
-   | push 0xfedbca98
-   | push 0x76543210
-   | //movdqa xmm0, [esp]
-	| add esp, 16
-
-	--[==[
-	-- dump the FPU state, control and tag regs
-	| //fstsw word MD.FSW
-	| //fstcw word MD.FCW
-	| fstenv MD.FSTENV
-
-	-- dump the FPU regs raw
-	local RAWST0 = ffi.offsetof('MemDump', 'RAWST')
-	for i=0,7 do
-		| fstp tword [eax+RAWST0+i*10]
-	end
-
-	-- load the FPU regs back so we can dump them again
-	for i=7,0,-1 do
-		| fld tword [eax+RAWST0+i*10]
-	end
-
-	-- dump the FPU regs as double
-	local ST0 = ffi.offsetof('MemDump', 'ST')
-	for i=0,7 do
-		| fstp qword [eax+ST0+i*8]
-	end
-
-	-- dump the SSE MXCSR reg
-	| stmxcsr dword MD.MXCSR
-
-	-- dump the XMM regs as double
-	local XMM0 = ffi.offsetof('MemDump', 'XMM')
-	for i=0,7 do
-		| movsd xmm(i), qword [eax+XMM0+i*8]
-	end
-	]==]
-
-	| fxsave [eax]
-
-	|
-	| push ebx
-	|
-	| mov ecx, eax
-	| mov edx, esp
-	| add edx, 4 // skip just-pushed ebx
-	|
+	| push TMP
+	| mov DST, BASE
+	| mov SRC, SP
+	| add SRC, ADD --skip just-pushed ebx/rbx
 	|->loop:
-	|
-	| // check frame
-	| cmp edx, ebp
+	| --check frame
+	| cmp SRC, BP
 	| jae ->end
 	|
 	| // check count
-	| mov ebx, ecx
-	| sub ebx, eax
-	| shr ebx, 2
-	| cmp ebx, 4096
+	| mov TMP, DST
+	| sub TMP, BASE
+	| shr TMP, SHIFT
+	| cmp TMP, 4096
 	| ja ->end
 	|
 	| // save, advance and go back
-	| mov ebx, [edx]
-	| mov MD:ecx.stack, ebx
-	| add edx, 4
-	| add ecx, 4
+	| mov TMP, [SRC]
+	| mov MD:DST.stack, TMP
+	| add SRC, ADD
+	| add DST, 8
 	| jmp ->loop
 	|
 	|->end:
-	| sub ecx, eax
-	| shr ecx, 2
-	| mov MD.stack_size, ecx
+	| sub DST, BASE
+	| shr DST, 3
+	| mov MD.stack_size, DST
    |
-	| pop ebx
+	| pop TMP
+
+	-- add user code here
+	%s
+
 	| ret
 ]]
 
---like ffi.new() but we can specify an alignment of the start address, plus we get a pointer to ct, not a ct.
-local function aligned_new(align, ctype, ...)
-	local ct   = ffi.typeof(ctype, ...)
-	local buf  = ffi.new('uint8_t[?]', ffi.sizeof(ct) + align)
-	local nptr = ffi.cast('uintptr_t', buf)
-	local nptr = nptr / align * align + align
-	local ptr  = ffi.cast(ffi.typeof('$*', ct), nptr)
-	ffi.gc(ptr, function(ptr)
-		local _ = buf --anchor buf
-	end)
-	return ptr
-end
-
-local function mkframe(ctype)
-	local md = aligned_new(16, 'MemDump') --aligned alloc (fxsave needs it)
+local function mkframe(ctype, user_asm)
+	local md = ffi.new'MemDump'
+	local asm = string.format(template_asm, user_asm or '')
 	local frame = asmfunc(asm, {md = md}, ctype)
-	return function(...)
-		local _ = md --pin it
-		return md, frame(...)
-	end
+	return frame, md
 end
 
-local function dumpframe()
+local function dumpframe(md)
 
-	local function out_dwords(dwords)
-		local fmt = '%-8s 0x%08X   %10d   %6d   %6d   %6d   %6d\n'
-		out(_(      '%-8s     %8s   %10s   %6s   %6s   %6s   %6s\n',
-			'name', '0x u32', 'i32', 'hi.u16', 'lo.u16', 'hi.u8', 'lo.u8'))
+	local function out_qwords(qwords)
+		local fmt = '%-8s 0x%08X%08X %19s %16d %16d %19s %19s %8d %8d %8d %8d\n'
+		out(_(            '%-8s %18s %19s %16s %16s %19s %19s %8s %8s %8s %8s\n',
+			'name', '0x', 'd', 'dw1', 'dw0', 'd1', 'd0', 'w3', 'w2', 'w1', 'w0'))
 		hr()
-		for name,val in dwords() do
+		for name, qword in qwords() do
 			out(_(fmt, name,
-				val.uint32,
-				val.int32,
-				val.hi.uint16,
-				val.lo.uint16,
-				val.lo.hi.uint8,
-				val.lo.lo.uint8))
+				qword.hi.uval,
+				qword.lo.uval,
+				isnan(qword) and 'nan' or _('%19g', qword.fval),
+				qword.hi.sval,
+				qword.lo.sval,
+				isnanf(qword.hi) and 'nan' or _('%19g', qword.hi.fval),
+				isnanf(qword.lo) and 'nan' or _('%19g', qword.lo.fval),
+				qword.hi.hi.sval,
+				qword.hi.lo.sval,
+				qword.lo.hi.sval,
+				qword.lo.lo.sval))
 		end
 		out'\n'
 	end
 
-	local cpu_regs = {
+	local function out_dwords(dwords)
+		local fmt = '%-8s 0x%08X %16d %19s %8d %8d %4d %4d %4d %4d\n'
+		out(_(       '%-8s   %8s %16s %19s %8s %8s %4s %4s %4s %4s\n',
+			'name', '0x', 'dw', 'f', 'w1', 'w0', 'b3', 'b2', 'b1', 'b0'))
+		hr()
+		for name, dword in dwords() do
+			out(_(fmt, name,
+				dword.uval,
+				dword.sval,
+				isnanf(dword) and 'nan' or _('%19g', dword.fval),
+				dword.hi.sval,
+				dword.lo.sval,
+				dword.hi.hi.sval,
+				dword.hi.lo.sval,
+				dword.lo.hi.sval,
+				dword.lo.lo.sval))
+		end
+		out'\n'
+	end
+
+	local cpu_regs = x64 and {
+		'RAX', 'RBX', 'RCX', 'RDX',
+		'RSI', 'RDI', 'RBP', 'RSP',
+		'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15',
+	} or {
 		'EAX', 'EBX', 'ECX', 'EDX',
 		'ESI', 'EDI', 'EBP', 'ESP',
 	}
 
 	local function out_gpr(md)
-		out'CPU REGISTERS:\n'
-		out_dwords(function()
+		local out_words = x64 and out_qwords or out_dwords
+		out_words(function()
 			local i = 0
 			return function()
 				i = i + 1
@@ -515,40 +562,60 @@ local function dumpframe()
 		end)
 	end
 
-	local function out_xmm(md)
-		out'SSE REGISTERS:\n'
+	local function out_xmm_d(md)
 		out_dwords(function()
 			return coroutine.wrap(function()
-				for i=0,7 do
+				local n = x64 and 16 or 8
+				for i=0,n do
 					for j=0,3 do
-						coroutine.yield('xmm'..i..'.dw'..j, md.XMM[i].dword[j])
+						coroutine.yield('xmm'..i..'.d'..j, md.XMM[i].dwords[j])
 					end
 				end
 			end)
 		end)
 	end
 
+	local function out_xmm_q(md)
+		out_qwords(function()
+			return coroutine.wrap(function()
+				local n = x64 and 16 or 8
+				for i=0,n-1 do
+					for j=0,1 do
+						coroutine.yield('xmm'..i..'.q'..j, md.XMM[i].qwords[j])
+					end
+				end
+			end)
+		end)
+	end
+
+	local function out_xmm(md, q)
+		if q then out_xmm_q(md) else out_xmm_d(md) end
+	end
+
 	local function out_stack(md)
-		out(_('STACK (%d DWORDs):\n', md.stack_size))
-		out_dwords(function()
+		local out_words = x64 and out_qwords or out_dwords
+		out_words(function()
 			local i = -1
 			return function()
 				i = i + 1
 				if i >= md.stack_size then return end
-				local name = _('esp+%d', tostring(i) * 4)
-				return name, md.stack[i]
+				local name = _((x64 and 'r' or 'e')..'sp+%d', tostring(i) * (x64 and 8 or 4))
+				return name, x64 and md.stack[i] or md.stack[i].lo
 			end
 		end)
 	end
 
+	local function getbit(n, v)
+		return bit.band(v, bit.lshift(1, n)) ~= 0
+	end
+
 	local function out_streg(md, n, k)
-		out(_('st(%d)   ', n), _('0x%04X%08X%08X    ', md.FPR[k].ex, md.FPR[k].hi, md.FPR[k].lo),
-			--_('%g', md.FPR[k].doubleval),
-			'\n')
+		if not getbit(7-n, md.FTWX.val) then return end
+		out(_('st(%d)   ', n), _('%s    ', glue.tohex(ffi.string(md.FPR[k].bytes, 10))),
+			_('%g', cvt80to64(md.FPR[k].bval)), '\n')
 	end
 
 	local function out_fpr(md)
-		out'FPU REGISTERS:\n'
 		hr()
 		for i=0,7 do
 			out_streg(md, i, i)
@@ -584,12 +651,9 @@ local function dumpframe()
 	local out_fcw    = flag_dumper(D_FCW)
 	local out_mxcsr  = flag_dumper(D_MXCSR)
 
-	local caller = mkframe('void(*)(double, int, int, int, int, int)')
-	local md = caller(0x2222, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777)
-
 	out_gpr(md)
 	out_fpr(md)
-	out_xmm(md)
+	out_xmm(md, x64 and 1)
 	out_stack(md)
 
 	out_eflags(md)
@@ -598,4 +662,9 @@ local function dumpframe()
 	out_fcw(md)
 end
 
-dumpframe()
+local frame, md = mkframe('int(__cdecl*)(float, int, int, int, int, int)', [[
+	| mov eax, 654321
+]])
+local ret = frame(12345.6, 0x3333, 0x4444, 0x5555, 0x6666, 0x7777)
+dumpframe(md)
+assert(ret == 654321)
