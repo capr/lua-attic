@@ -1,0 +1,5 @@
+- keyboard
+	- use XkbSetDetectableAutorepeat
+	- x11 keyboard bug: capslock/numlock bug
+
+

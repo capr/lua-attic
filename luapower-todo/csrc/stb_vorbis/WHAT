@@ -1,0 +1,5 @@
+stb_vorbis 1.06 from https://github.com/nothings/stb/blob/master/stb_vorbis.c (Public Domain License)
+
+
+NOTE WHEN UPGRADING: the file was modified to build with mingw-w64:
+	see def. of __forceinline at line 563 (mingw-w64 bug).
