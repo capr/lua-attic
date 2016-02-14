@@ -51,6 +51,7 @@ local select, pairs, tonumber, tostring, unpack, xpcall, assert, getmetatable, s
 local sort, format, byte, char, min, max =
 	table.sort, string.format, string.byte, string.char, math.min, math.max
 
+--[==[
 ## `glue.index(t) -> dt` {#index}
 
 Switch table keys with values.
@@ -108,7 +109,7 @@ print(info_end_code_names[64])
 Output:
 
 	isc_info_svc_timeout
-
+]==]
 
 function glue.index(t)
 	local dt={} for k,v in pairs(t) do dt[v]=k end
