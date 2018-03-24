@@ -188,7 +188,7 @@ local gamefile = {level = 1, dark = true}
 
 local function load_gamefile()
 	if glue.fileexists(filename) then
-		gamefile = loadfile(filename)()
+		--gamefile = loadfile(filename)()
 	end
 end
 
@@ -272,14 +272,14 @@ local Z = 50 --box size in pixels
 
 local cairo = require'cairo'
 
-local wall_png  = cairo.cairo_image_surface_create_from_png'wall.png'
-local crate_png = cairo.cairo_image_surface_create_from_png'crate.png'
-local dog_png   = cairo.cairo_image_surface_create_from_png'bigdog.png'
-local strawberry_png = cairo.cairo_image_surface_create_from_png'strawberry.png'
+local wall_png  = cairo.load_png'wall.png'
+local crate_png = cairo.load_png'crate.png'
+local dog_png   = cairo.load_png'bigdog.png'
+local strawberry_png = cairo.load_png'strawberry.png'
 
 local function paint_image(cr, x, y, image)
 	cr:translate(x, y)
-	cr:set_source_surface(image, 0, 0)
+	cr:source(image, 0, 0)
 	cr:paint()
 	cr:translate(-x, -y)
 end
@@ -309,7 +309,7 @@ function player:on_render(cr)
 		load_level(level)
 	elseif self.key == 'down' or self.key == 'up' or self.key == 'left' or self.key == 'right' then
 		if move(self.key) then
-			self.boom = self:animation(50)
+			self.boom = self:stopwatch(.05)
 		end
 	elseif self.ctrl and self.key == 'Z' then
 		undo()
@@ -339,7 +339,7 @@ function player:on_render(cr)
 
 	local crates_remaining = crates_remaining()
 
-	self:label{x = 10, y = 60, font_face = 'Fixedsys', text =
+	self:label{x = 10, y = 60, w = 100, h = 26, font_face = 'Fixedsys', text =
 		string.format('level: %d\n', level) ..
 		string.format('crates left: %d\n', crates_remaining) ..
 		string.format('moves: %d\n\n', moves) ..
@@ -353,7 +353,11 @@ function player:on_render(cr)
 	}
 
 	if crates_remaining == 0 then
-		self:label{x = 40, y = 300, font_face = 'Fixedsys', font_size = 32, color = '#ff0000', text = 'COMPLETED'}
+		self:label{x = 40, y = 300,
+			w = 100,
+			h = 26,
+			font_face = 'Fixedsys', font_size = 32,
+			color = '#ff0000', text = 'COMPLETED'}
 	end
 
 	if self.boom then
