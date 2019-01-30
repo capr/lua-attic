@@ -1,10 +1,10 @@
-setfenv(1, require'low')
+--https://dev.to/jrop/pratt-parsing
 
 local s = '1 + 2 + 3'
 
 local t = {}
 for s in s:gmatch'[^%s]+' do
-	add(t,s)
+	t[#t+1] = s
 end
 
 local i = 0
@@ -40,5 +40,4 @@ function expr(rbp)
 	return lhs
 end
 
-pp(expr())
-
+require'pp'(expr())
