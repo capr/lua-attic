@@ -1,0 +1,26 @@
+
+- elevations & elevation surface contour tracing editor
+	- surface parametrization:
+		- path
+		- indoor/outdoor flag
+	- keep surface contours aligned while editing
+	- auto-generate missing surfaces from surface diff'ing the overlapping elevations
+		- suspended underfloors
+		- terraces
+		- roofs
+	- auto-generate exterior walls
+	- auto-generate
+
+- roof editor
+	roof parametrization:
+		- overhang offsets
+	- roof ridge lines and ridge heights
+		- auto generate hip lines
+		- auto-snap-to gabled/shed/flat
+	- parametrization:
+		- truss
+		- with/without soffits
+
+-> generate exterior surfaces for differences
+-> generate exterior walls around the union of all interior surfaces
+
