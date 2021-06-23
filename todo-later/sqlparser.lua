@@ -121,3 +121,23 @@ local ops = index{
 		end
 	end
 
+
+
+if not ... then
+
+
+	local sql = [[
+		select * from `table` where name = 'so\'me foo''s bar'
+			and id <= 5
+			or x = ??
+			and y = :y;
+			and $foo(a, b)
+	]]
+	for tk, i, j, s, s2 in pp.tokens(sql) do
+		if tk ~= 'space' then
+			print(tk, i, j, i and j and trim(sql:sub(i, j-1)), s or '', s2 or '')
+		end
+	end
+
+
+end
