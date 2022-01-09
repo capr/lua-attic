@@ -1,5 +1,8 @@
---tar parsing and formatting module. parsing part adapted from luarocks. written by Cosmin Apreutesei.
---file format here: http://en.wikipedia.org/wiki/Tar_(computing)
+
+--tar parsing and formatting module.
+--Written by Cosmin Apreutesei. Public Domain.
+--Parsing part adapted from LuaRocks.
+--File format at: http://en.wikipedia.org/wiki/Tar_(computing)
 
 local glue = require'glue'
 
@@ -21,7 +24,7 @@ local typeflags = {
 local typeflag_names = glue.index(typeflags)
 typeflag_names['\0'] = 'file'
 
--- parsing
+-- parsing -------------------------------------------------------------------
 
 local function nullterm(s) --null terminated non-empty string
 	return s:match('^[^%z]+')
