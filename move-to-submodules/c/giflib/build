@@ -1,0 +1,27 @@
+#!/bin/sh
+cd "${0%build}" || exit 1
+files="
+src/dgif_lib.c
+src/egif_lib.c
+src/gif_err.c
+src/gif_font.c
+src/gif_hash.c
+src/gifalloc.c
+src/openbsd-reallocarray.c
+"
+build() {
+	${X}gcc -c -O2 $C $files -Isrc
+	${X}gcc *.o -shared -o ../../bin/$P/$D $L
+	rm -f      ../../bin/$P/$A
+	${X}ar rcs ../../bin/$P/$A *.o
+	rm *.o
+}
+
+if [ "$OSTYPE" = "msys" ]; then
+	P=windows L="-s -static-libgcc" D=gif.dll A=gif.a build
+elif [ "${OSTYPE#darwin}" != "$OSTYPE" ]; then
+	P=osx64 C="-arch x86_64" L="-arch x86_64 -install_name @rpath/libgif.dylib" \
+	D=libgif.dylib A=libgif.a build
+else
+	P=linux C="-fPIC" L="-s -static-libgcc" D=libgif.so A=libgif.a build
+fi

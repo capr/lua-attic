@@ -1,0 +1,64 @@
+#!/bin/sh
+cd "${0%build}" || exit 1
+
+# harfbuzz build with opentype, freetype. dynamically links to freetype.
+cd src/src || exit 1
+
+build() {
+
+	# pre-processing step: convert *.rl -> *.hh with ragel
+	for f in `ls *.rl`; do
+		if [ ! -f "${f%.*}.hh" ]; then
+			echo $f
+			ragel "$f" -e -F1 -o "${f%.*}.hh"
+		fi
+	done
+
+	local C="$C
+	hb-blob.cc
+	hb-buffer-serialize.cc
+	hb-buffer.cc
+	hb-common.cc
+	hb-face.cc
+	hb-font.cc
+	hb-map.cc
+	hb-ot-tag.cc
+	hb-set.cc
+	hb-shape.cc
+	hb-shape-plan.cc
+	hb-shaper.cc
+	hb-static.cc
+	hb-unicode.cc
+	hb-warning.cc
+
+	-DHAVE_OT
+	hb-ot*.cc
+
+	-DHAVE_FREETYPE
+	hb-ft.cc
+
+	-DHAVE_FALLBACK
+	hb-fallback-shape.cc
+
+	-DHAVE_UCDN
+	hb-ucdn.cc
+	"
+
+	${X}gcc -c -O2 $C -DHAVE_INTEL_ATOMIC_PRIMITIVES -DUCDN_EXPORT \
+		-I. -I../../../freetype/src/include -I../../../ucdn \
+		-fno-exceptions -fno-rtti
+	${X}gcc *.o -shared -o ../../../../bin/$P/$D -L../../../../bin/$P $L -lfreetype -lucdn
+	rm -f      ../../../../bin/$P/$A
+	${X}ar rcs ../../../../bin/$P/$A *.o
+	rm *.o
+}
+
+if [ "$OSTYPE" = "msys" ]; then
+	P=windows L="-s -static-libgcc" D=harfbuzz.dll A=harfbuzz.a build
+elif [ "${OSTYPE#darwin}" != "$OSTYPE" ]; then
+	P=osx64 C="-arch x86_64 -std=c++11" L="-arch x86_64 -install_name @rpath/libharfbuzz.dylib" \
+	D=libharfbuzz.dylib A=libharfbuzz.a build
+else
+	P=linux C="-fPIC -include ../_memcpy.h -std=c++11" L="-s -static-libgcc" \
+	D=libharfbuzz.so A=libharfbuzz.a build
+fi

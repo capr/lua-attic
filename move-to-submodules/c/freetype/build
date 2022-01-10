@@ -1,0 +1,116 @@
+#!/bin/sh
+cd "${0%build}" || exit 1
+
+# REQUIRES: libpng, harfbuzz.
+#
+# FEATURES: truetype format, truetype bytecode hinter, autohinter,
+# aa rasterizer, stroker.
+#
+# NOTE: Building harfbuzz requires a freetype binary, but freetype requires
+# harfbuzz, so do a build of freetype first with NO_HARFBUZZ=1 env var set
+# if you don't have a harfbuzz binary, in order to build harfbuzz so that
+# you can build freetype again with harfbuzz.
+
+files=(
+	# base components (required)
+
+	base/ftsystem.c
+	base/ftinit.c
+	base/ftdebug.c
+
+	base/ftbase.c
+
+	base/ftbbox.c       # recommended, see <ftbbox.h>
+	base/ftglyph.c      # recommended, see <ftglyph.h>
+
+	#base/ftbdf.c        # optional, see <ftbdf.h>
+	base/ftbitmap.c     # optional, see <ftbitmap.h>
+	#base/ftcid.c        # optional, see <ftcid.h>
+	#base/ftfstype.c     # optional
+	base/ftgasp.c       # optional, see <ftgasp.h>
+	base/ftgxval.c      # optional, see <ftgxval.h>
+	base/ftmm.c         # optional, see <ftmm.h>
+	base/ftotval.c      # optional, see <ftotval.h>
+	#base/ftpatent.c     # optional
+	#base/ftpfr.c        # optional, see <ftpfr.h>
+	base/ftstroke.c     # optional, see <ftstroke.h>
+	base/ftsynth.c      # optional, see <ftsynth.h>
+	#base/fttype1.c      # optional, see <t1tables.h>
+	#base/ftwinfnt.c     # optional, see <ftwinfnt.h>
+
+	#base/ftmac.c        # only on the Macintosh
+
+	# font drivers (optional; at least one is needed)
+
+	#bdf/bdf.c           # BDF font driver
+	#cff/cff.c           # CFF/OpenType font driver
+	#cid/type1cid.c      # Type 1 CID-keyed font driver
+	#pcf/pcf.c           # PCF font driver
+	#pfr/pfr.c           # PFR/TrueDoc font driver
+	sfnt/sfnt.c         # SFNT files support (TrueType & OpenType)
+	truetype/truetype.c # TrueType font driver
+	#type1/type1.c       # Type 1 font driver
+	#type42/type42.c     # Type 42 font driver
+	#winfonts/winfnt.c   # Windows FONT / FNT font driver
+
+	# rasterizers (optional; at least one is needed for vector formats)
+
+	# raster/raster.c     # monochrome rasterizer
+	smooth/smooth.c     # anti-aliasing rasterizer
+
+	# auxiliary modules (optional)
+
+	autofit/autofit.c   # auto hinting module
+	cache/ftcache.c     # cache sub-system (in beta)
+	#gzip/ftgzip.c       # support for compressed fonts (.gz)
+	#lzw/ftlzw.c         # support for compressed fonts (.Z)
+	#bzip2/ftbzip2.c     # support for compressed fonts (.bz2)
+	gxvalid/gxvalid.c   # TrueTypeGX/AAT table validation
+	otvalid/otvalid.c   # OpenType table validation
+	psaux/psaux.c       # PostScript Type 1 parsing
+	pshinter/pshinter.c # PS hinting module
+	psnames/psnames.c   # PostScript glyph names support
+
+#  NOTES:
+#
+#  ftcache.c  needs ftglyph.c
+#  ftfstype.c needs fttype1.c
+#  ftglyph.c  needs ftbitmap.c
+#  ftstroke.c needs ftglyph.c
+#  ftsynth.c  needs ftbitmap.c
+#
+#  truetype.c needs sfnt.c and psnames.c
+#  type1.c    needs psaux.c pshinter.c, and psnames.c
+#  type1cid.c needs psaux.c, pshinter.c, and psnames.c
+#  type42.c   needs truetype.c
+#
+#  Please consult the central  include/freetype/config/ftoption.h
+#  configuration file for details on additional libraries necessary
+#  for some optional features.
+)
+files=("${files[@]/#/src/src/}" )
+files="${files[@]}"
+
+build() {
+	local C
+	local L
+	[ "$NO_HARFBUZZ" ] || {
+		C="$C -I../harfbuzz/src/src -DFT_CONFIG_OPTION_USE_HARFBUZZ"
+		L="$L -lharfbuzz"
+	}
+	${X}gcc -c -O2 $C $files -I. -Isrc/include -I../libpng -I../libpng/src -DFT2_BUILD_LIBRARY
+	${X}gcc *.o -shared -o ../../bin/$P/$D -L../../bin/$P -lpng $L
+	rm -f      ../../bin/$P/$A
+	${X}ar rcs ../../bin/$P/$A *.o
+	rm *.o
+}
+
+if [ "$OSTYPE" = "msys" ]; then
+	P=windows L="-s -static-libgcc" D=freetype.dll A=freetype.a build
+elif [ "${OSTYPE#darwin}" != "$OSTYPE" ]; then
+	P=osx64 C="-arch x86_64" L="-arch x86_64 -install_name @rpath/libfreetype.dylib" \
+	D=libfreetype.dylib A=libfreetype.a build
+else
+	P=linux C="-fPIC -U_FORTIFY_SOURCE" L="-s -static-libgcc" \
+	D=libfreetype.so A=libfreetype.a build
+fi

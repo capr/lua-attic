@@ -1,0 +1,33 @@
+#!/bin/sh
+cd "${0%build}" || exit 1
+
+files="
+src/src/emojidef.c
+src/src/graphemebreak.c
+src/src/graphemebreakdata.c
+src/src/linebreak.c
+src/src/linebreakdata.c
+src/src/linebreakdef.c
+src/src/tests.c
+src/src/unibreakbase.c
+src/src/unibreakdef.c
+src/src/wordbreak.c
+src/src/wordbreakdata.c
+"
+
+build() {
+	${X}gcc -c -O2 $C -Isrc/src $files
+	${X}gcc *.o -shared -o ../../bin/$P/$D $L
+	rm -f      ../../bin/$P/$A
+	${X}ar rcs ../../bin/$P/$A *.o
+	rm *.o
+}
+
+if [ "$OSTYPE" = "msys" ]; then
+	P=windows L="-s -static-libgcc" D=unibreak.dll A=unibreak.a build
+elif [ "${OSTYPE#darwin}" != "$OSTYPE" ]; then
+	P=osx64 C="-arch x86_64" L="-arch x86_64 -install_name @rpath/libunibreak.dylib" \
+	D=libunibreak.dylib A=libunibreak.a build
+else
+	P=linux C=-fPIC L="-s -static-libgcc" D=libunibreak.so A=libunibreak.a build
+fi

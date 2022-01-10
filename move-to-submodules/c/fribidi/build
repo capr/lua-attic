@@ -1,0 +1,54 @@
+#!/bin/sh
+cd "${0%build}" || exit 1
+
+C0="
+-DHAVE_STRINGIZE
+-DHAVE_STDLIB_H
+-DHAVE_STRING_H
+-DHAVE_STRINGS_H
+-DSTDC_HEADERS=1
+-UHAVE_CONFIG_H
+-DDONT_HAVE_FRIBIDI_CONFIG_H
+-DDONT_HAVE_FRIBIDI_UNICODE_VERSION_H
+"
+
+gen_tab() {
+	local s=$1; shift
+	gcc -I../lib $C0 -o gen-$s-tab packtab.c gen-$s-tab.c
+	echo $s.tab.i
+	./gen-$s-tab 2 "$@" > $s.tab.i
+	rm gen-$s-tab
+}
+
+gen_tabs() {
+	(
+	cd src/gen.tab || exit 1
+	gen_tab bidi-type       unidata/UnicodeData.txt
+	gen_tab joining-type    unidata/UnicodeData.txt unidata/ArabicShaping.txt
+	gen_tab arabic-shaping  unidata/UnicodeData.txt
+	gen_tab mirroring       unidata/BidiMirroring.txt
+	gen_tab brackets        unidata/BidiBrackets.txt unidata/UnicodeData.txt
+	gen_tab brackets-type   unidata/BidiBrackets.txt
+	)
+}
+
+gen_tabs
+
+build() {
+	${X}gcc -c -O2 -Wall -ansi -DFRIBIDI_BUILD \
+		$C0 $C src/lib/*.c -Isrc/gen.tab -Isrc/lib
+	${X}gcc *.o -shared -o ../../bin/$P/$D $L
+	rm -f      ../../bin/$P/$A
+	${X}ar rcs ../../bin/$P/$A *.o
+	rm *.o
+	rm src/gen.tab/*.i
+}
+
+if [ "$OSTYPE" = "msys" ]; then
+	P=windows L="-s -static-libgcc" D=fribidi.dll A=fribidi.a build
+elif [ "${OSTYPE#darwin}" != "$OSTYPE" ]; then
+	P=osx64 C="-arch x86_64" L="-arch x86_64 -install_name @rpath/libfribidi.dylib" \
+	D=libfribidi.dylib A=libfribidi.a build
+else
+	P=linux C="-fPIC" L="-s -static-libgcc" D=libfribidi.so A=libfribidi.a build
+fi

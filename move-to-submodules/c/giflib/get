@@ -1,0 +1,5 @@
+V=5.2.1
+curl --output src.tar.gz https://kumisystems.dl.sourceforge.net/project/giflib/giflib-$V.tar.gz
+tar xzf src.tar.gz
+mv giflib-$V src
+rm src.tar.gz

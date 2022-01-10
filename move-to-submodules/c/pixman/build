@@ -1,0 +1,66 @@
+#!/bin/sh
+cd "${0%build}" || exit 1
+
+build() {
+	local C1="
+	-Wno-unused-local-typedefs
+	-Wno-unused-const-variable
+	src/pixman/pixman.c
+	src/pixman/pixman-access.c
+	src/pixman/pixman-access-accessors.c
+	src/pixman/pixman-bits-image.c
+	src/pixman/pixman-combine32.c
+	src/pixman/pixman-combine-float.c
+	src/pixman/pixman-conical-gradient.c
+	src/pixman/pixman-filter.c
+	src/pixman/pixman-x86.c
+	src/pixman/pixman-arm.c
+	src/pixman/pixman-ppc.c
+	src/pixman/pixman-mips.c
+	src/pixman/pixman-edge.c
+	src/pixman/pixman-edge-accessors.c
+	src/pixman/pixman-fast-path.c
+	src/pixman/pixman-glyph.c
+	src/pixman/pixman-general.c
+	src/pixman/pixman-gradient-walker.c
+	src/pixman/pixman-image.c
+	src/pixman/pixman-implementation.c
+	src/pixman/pixman-linear-gradient.c
+	src/pixman/pixman-matrix.c
+	src/pixman/pixman-noop.c
+	src/pixman/pixman-radial-gradient.c
+	src/pixman/pixman-region16.c
+	src/pixman/pixman-region32.c
+	src/pixman/pixman-solid-fill.c
+	src/pixman/pixman-timer.c
+	src/pixman/pixman-trap.c
+	src/pixman/pixman-utils.c
+	src/pixman/pixman-mmx.c
+	src/pixman/pixman-sse2.c
+	src/pixman/pixman-ssse3.c
+	-mmmx -msse2 -mssse3 -mfpmath=sse
+	-DUSE_X86_MMX
+	-DUSE_SSE2
+	-DUSE_SSSE3
+	-DUSE_GCC_INLINE_ASM
+	-DPACKAGE=pixman
+	"
+	${X}gcc -c -O2 $C $C1 -Wall -I. -Isrc/pixman
+	${X}gcc *.o -shared -o ../../bin/$P/$D $L
+	rm -f      ../../bin/$P/$A
+	${X}ar rcs ../../bin/$P/$A *.o
+	rm *.o
+}
+
+if [ "$OSTYPE" = "msys" ]; then
+P=windows L="-s -static-libgcc" D=pixman.dll A=pixman.a build
+elif [ "${OSTYPE#darwin}" != "$OSTYPE" ]; then
+[ `uname` = Linux ] && export X=x86_64-apple-darwin11-
+	P=osx64 \
+	C="-arch x86_64 -mmacosx-version-min=10.6 -DHAVE_PTHREADS -DPIXMAN_NO_TLS" \
+	L="-arch x86_64 -mmacosx-version-min=10.6 -install_name @rpath/libpixman.dylib " \
+	D=libpixman.dylib A=libpixman.a build
+else
+	P=linux C="-fPIC -DHAVE_PTHREADS -DTLS=__thread" L="-s -static-libgcc" \
+	D=libpixman.so A=libpixman.a build
+fi

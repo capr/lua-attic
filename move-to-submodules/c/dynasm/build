@@ -1,0 +1,19 @@
+#!/bin/sh
+cd "${0%build}" || exit 1
+
+build() {
+	${X}gcc -c -O2 $C dasm_x86.c -DDASM_CHECKS
+	${X}gcc *.o -shared $L -o ../../bin/$P/$D
+	rm -f      ../../bin/$P/$A
+	${X}ar rcs ../../bin/$P/$A *.o
+	rm *.o
+}
+
+if [ "$OSTYPE" = "msys" ]; then
+	P=windows L="-s -static-libgcc" D=dasm_x86.dll A=dasm_x86.a build
+elif [ "${OSTYPE#darwin}" != "$OSTYPE" ]; then
+	P=osx64 C="-arch x86_64" L="-arch x86_64 -install_name @rpath/libdasm_x86.dylib" \
+	D=libdasm_x86.dylib A=libdasm_x86.a build
+else
+	P=linux C=-fPIC L="-s -static-libgcc" D=libdasm_x86.so A=libdasm_x86.a build
+fi
