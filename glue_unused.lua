@@ -1,38 +1,3 @@
---portable way to add more paths to package.path, at any place in the list.
---negative indices count from the end of the list like string.sub().
---index 'after' means 0.
-function glue.luapath(path, index, ext)
-	ext = ext or 'lua'
-	index = index or 1
-	local psep = package.config:sub(1,1) --'/'
-	local tsep = package.config:sub(3,3) --';'
-	local wild = package.config:sub(5,5) --'?'
-	local paths = glue.collect(glue.gsplit(package.path, tsep, nil, true))
-	path = path:gsub('[/\\]', psep) --normalize slashes
-	if index == 'after' then index = 0 end
-	if index < 1 then index = #paths + 1 + index end
-	table.insert(paths, index,  path .. psep .. wild .. psep .. 'init.' .. ext)
-	table.insert(paths, index,  path .. psep .. wild .. '.' .. ext)
-	package.path = concat(paths, tsep)
-end
-
---portable way to add more paths to package.cpath, at any place in the list.
---negative indices count from the end of the list like string.sub().
---index 'after' means 0.
-function glue.cpath(path, index)
-	index = index or 1
-	local psep = package.config:sub(1,1) --'/'
-	local tsep = package.config:sub(3,3) --';'
-	local wild = package.config:sub(5,5) --'?'
-	local ext = package.cpath:match('%.([%a]+)%'..tsep..'?') --dll | so | dylib
-	local paths = glue.collect(glue.gsplit(package.cpath, tsep, nil, true))
-	path = path:gsub('[/\\]', psep) --normalize slashes
-	if index == 'after' then index = 0 end
-	if index < 1 then index = #paths + 1 + index end
-	table.insert(paths, index,  path .. psep .. wild .. '.' .. ext)
-	package.cpath = concat(paths, tsep)
-end
-
 
 local function serialize(v, stk) --from github.com/rxi/lume
 	if v  == nil then return 'nil' end
